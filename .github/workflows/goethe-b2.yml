@@ -1,0 +1,62 @@
+name: Alerte Goethe B2
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      test_email:
+        description: "Envoyer seulement un e-mail de test"
+        type: boolean
+        default: false
+      loop_minutes:
+        description: "Minutes de surveillance (0 = une seule verification)"
+        default: "0"
+
+# Une seule surveillance a la fois ; la suivante attend son tour.
+concurrency:
+  group: goethe-b2
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer Playwright + Chromium
+        run: |
+          pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+
+      - name: Verifier la page Goethe
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_TO: abdessamad.daniel@gmail.com
+          # Execution planifiee : on verifie chaque minute pendant 20 minutes.
+          LOOP_MINUTES: ${{ github.event_name == 'schedule' && '20' || inputs.loop_minutes }}
+          INTERVAL_SECONDS: "60"
+        run: |
+          if [ "${{ inputs.test_email }}" = "true" ]; then
+            python check_goethe.py --test-email
+          else
+            python check_goethe.py
+          fi
+
+      - name: Garder une capture de la page
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-page
+          path: debug/
+          retention-days: 3
+          if-no-files-found: ignore
