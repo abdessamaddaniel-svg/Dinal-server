@@ -45,7 +45,9 @@ def classify(text):
 
 def read_rows():
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        # Sur GitHub, on utilise Google Chrome deja installe (demarrage plus rapide).
+        channel = os.environ.get("BROWSER_CHANNEL") or None
+        browser = p.chromium.launch(channel=channel)
         page = browser.new_page(
             locale="fr-FR",
             user_agent=(

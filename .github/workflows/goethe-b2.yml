@@ -32,10 +32,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Installer Playwright + Chromium
-        run: |
-          pip install playwright==1.48.0
-          python -m playwright install --with-deps chromium
+      - name: Installer Playwright
+        timeout-minutes: 5
+        run: pip install playwright==1.48.0
 
       - name: Verifier la page Goethe
         env:
@@ -45,6 +44,7 @@ jobs:
           # Execution planifiee : on verifie chaque minute pendant 20 minutes.
           LOOP_MINUTES: ${{ github.event_name == 'schedule' && '20' || inputs.loop_minutes }}
           INTERVAL_SECONDS: "60"
+          BROWSER_CHANNEL: chrome
         run: |
           if [ "${{ inputs.test_email }}" = "true" ]; then
             python check_goethe.py --test-email
