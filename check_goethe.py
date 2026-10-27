@@ -10,6 +10,7 @@ import smtplib
 import subprocess
 import sys
 import time
+import urllib.request
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
@@ -20,6 +21,7 @@ URL = "https://www.goethe.de/ins/ma/fr/spr/prf/gzb2.cfm"
 STATE_FILE = Path("state.json")
 DEBUG_DIR = Path("debug")
 ALERT_TO = os.environ.get("ALERT_TO", "abdessamad.daniel@gmail.com")
+GITHUB_MENTION = os.environ.get("GITHUB_MENTION", "abdessamaddaniel-svg")
 
 # Duree de surveillance par execution et pause entre deux verifications.
 LOOP_MINUTES = float(os.environ.get("LOOP_MINUTES", "0"))
@@ -79,6 +81,14 @@ def read_rows():
                       .filter(Boolean),
                 }))"""
             )
+        except Exception:
+            try:
+                print("   Titre de la page :", page.title())
+                print("   Adresse :", page.url)
+                print("   Debut du texte :", page.inner_text("body")[:1500].replace("\n", " | "))
+            except Exception:
+                pass
+            raise
         finally:
             DEBUG_DIR.mkdir(exist_ok=True)
             try:
@@ -101,7 +111,7 @@ def send_email(subject, body):
     user = os.environ.get("GMAIL_USER")
     password = os.environ.get("GMAIL_APP_PASSWORD")
     if not user or not password:
-        print("!! Secrets GMAIL_USER / GMAIL_APP_PASSWORD absents : e-mail non envoye.")
+        print("(Pas de secrets Gmail : alerte envoyee seulement par GitHub.)")
         return False
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -113,6 +123,39 @@ def send_email(subject, body):
         s.send_message(msg)
     print(f"E-mail envoye a {ALERT_TO} : {subject}")
     return True
+
+
+def open_issue(title, body):
+    """Ouvre une issue GitHub : GitHub envoie alors un e-mail au proprietaire du depot."""
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo:
+        print("!! GITHUB_TOKEN absent : issue non creee.")
+        return False
+    data = json.dumps({"title": title, "body": f"@{GITHUB_MENTION}\n\n{body}"}).encode()
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/issues",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        url = json.loads(r.read())["html_url"]
+    print(f"Issue creee : {url}")
+    return True
+
+
+def notify(subject, body):
+    ok = False
+    for fn in (open_issue, send_email):
+        try:
+            ok = fn(subject, body) or ok
+        except Exception as e:
+            print(f"!! {fn.__name__} a echoue : {e}")
+    return ok
 
 
 def load_state():
@@ -148,7 +191,7 @@ def check_once(state):
         if not state.get("error"):
             state["error"] = True
             save_state(state)
-            send_email(
+            notify(
                 "[Goethe B2] Le robot n'arrive plus a lire la page",
                 f"Le robot n'a pas pu lire {URL}\nErreur : {e}\n\n"
                 "Verifiez la page vous-meme. Vous recevrez un autre message quand ca remarche.",
@@ -163,7 +206,7 @@ def check_once(state):
     if state.get("error"):
         state["error"] = False
         changed = True
-        send_email("[Goethe B2] Le robot lit de nouveau la page", "Tout remarche, la surveillance continue.")
+        notify("[Goethe B2] Le robot lit de nouveau la page", "Tout remarche, la surveillance continue.")
 
     open_now = sorted(r["text"] for r in rows if r["status"] == "ouvert")
     new_open = [t for t in open_now if t not in state.get("open", [])]
@@ -176,7 +219,7 @@ def check_once(state):
             + "\n".join(f" - [{r['status']}] {r['text']}" for r in rows)
             + f"\n\nVerifie le {now}."
         )
-        send_email("🚨 [Goethe B2] Reservation ouverte - vite !", body)
+        notify("🚨 [Goethe B2] Reservation ouverte - vite !", body)
     if open_now != state.get("open", []):
         state["open"] = open_now
         changed = True
@@ -186,8 +229,12 @@ def check_once(state):
 
 
 def main():
-    if "--test-email" in sys.argv:
-        ok = send_email("[Goethe B2] Test du robot", "Ceci est un test. Les alertes arriveront a cette adresse.")
+    if "--test-alert" in sys.argv:
+        ok = notify(
+            "[Goethe B2] Test du robot",
+            "Ceci est un test. Si vous recevez cet e-mail, les vraies alertes arriveront de la meme facon.\n"
+            "Vous pouvez fermer cette issue.",
+        )
         sys.exit(0 if ok else 1)
     state = load_state()
     deadline = time.time() + LOOP_MINUTES * 60

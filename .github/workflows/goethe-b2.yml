@@ -5,8 +5,8 @@ on:
     - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
-      test_email:
-        description: "Envoyer seulement un e-mail de test"
+      test_alert:
+        description: "Envoyer seulement une alerte de test"
         type: boolean
         default: false
       loop_minutes:
@@ -20,6 +20,7 @@ concurrency:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   check:
@@ -38,6 +39,7 @@ jobs:
 
       - name: Verifier la page Goethe
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_TO: abdessamad.daniel@gmail.com
@@ -46,8 +48,8 @@ jobs:
           INTERVAL_SECONDS: "60"
           BROWSER_CHANNEL: chrome
         run: |
-          if [ "${{ inputs.test_email }}" = "true" ]; then
-            python check_goethe.py --test-email
+          if [ "${{ inputs.test_alert }}" = "true" ]; then
+            python check_goethe.py --test-alert
           else
             python check_goethe.py
           fi
